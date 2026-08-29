@@ -1,4 +1,5 @@
-FROM alpine:3.15
+ARG ALPINE_VERSION=3.15
+FROM alpine:${ALPINE_VERSION}
 RUN apk add --no-cache build-base zlib-dev bzip2-dev xz-dev ncurses-dev \
     readline-dev sqlite-dev openssl-dev libffi-dev linux-headers wget file
 
