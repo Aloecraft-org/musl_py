@@ -1,0 +1,156 @@
+name: Release
+
+# Publishes the prebuilt pyalt runtime + wheelhouse as GitHub release assets, so
+# consumers can fetch them instead of vendoring .generated/ and rsyncing.
+#
+#   push a tag  ->  build, verify, publish a release
+#   dispatch    ->  build and verify only, artifacts attached to the run
+#                   (fill in "tag" to publish from the Actions UI instead)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish. Leave blank for a dry run (build + verify, no release).'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: alpine 3.15 / x86_64
+    runs-on: ubuntu-latest
+    # A PGO CPython build plus a from-source pyfuse3 is slow; the default
+    # 360-minute cap would still apply, this just fails sooner if it wedges.
+    timeout-minutes: 180
+    permissions:
+      contents: write   # create the release and upload its assets
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve target tag
+        id: meta
+        env:
+          # Via env rather than inline ${{ }} so the value is never interpolated
+          # into the script body.
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          else
+            tag="${INPUT_TAG:-}"
+          fi
+
+          if [ -n "$tag" ] && ! printf '%s' "$tag" | grep -qE '^[A-Za-z0-9._-]+$'; then
+            echo "error: refusing to publish tag '$tag' (expected [A-Za-z0-9._-]+)" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "${INPUT_PRERELEASE:-}" = "true" ]; then
+            echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -n "$tag" ]; then
+            echo "::notice::will publish release $tag"
+          else
+            echo "::notice::dry run -- building and verifying, no release will be published"
+          fi
+
+      - name: Build runtime and wheelhouse
+        env:
+          CONTAINER_ENGINE: docker
+        run: ./scripts/build.sh
+
+      - name: Verify artifacts on a clean Alpine host
+        env:
+          CONTAINER_ENGINE: docker
+        run: ./scripts/smoke-test.sh
+
+      # Always attached, so a dry run is still downloadable and a failed publish
+      # does not throw away an hour of build time.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyalt-${{ github.sha }}
+          path: .generated/
+          retention-days: 14
+          if-no-files-found: error
+          overwrite: true   # so re-running a failed job does not collide
+
+      - name: Publish release
+        if: steps.meta.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          # Derived from the built artifact so the notes stay correct across a
+          # python series bump.
+          SERIES="$(basename .generated/pyalt-*.tar.gz | sed 's/^pyalt-//; s/\.tar\.gz$//')"
+
+          {
+            echo "Prebuilt CPython for Alpine 3.15 (musl, x86_64), with an offline"
+            echo "wheelhouse containing every dependency it is expected to serve."
+            echo
+            echo "Verified before publishing: unpacked onto a clean \`alpine:3.15\`,"
+            echo "every wheel installed with \`--no-index\`, every package imported."
+            echo
+            echo '## Install on an Alpine host'
+            echo
+            echo '```sh'
+            echo "wget -qO install-pyalt.sh https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/install-pyalt.sh"
+            echo "sh install-pyalt.sh -r $TAG -s $SERIES"
+            echo '```'
+            echo
+            echo '## Or fetch the tarballs directly'
+            echo
+            echo '```sh'
+            echo "base=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+            echo "wget -q \"\$base/pyalt-$SERIES.tar.gz\" \"\$base/wheelhouse-$SERIES.tar.gz\" \"\$base/SHA256SUMS\""
+            echo 'sha256sum -c --ignore-missing SHA256SUMS'
+            echo '```'
+            echo
+            echo '## Manifest'
+            echo
+            echo '```'
+            cat .generated/MANIFEST.txt
+            echo '```'
+          } > notes.md
+
+          # gh release create fails on an existing release; re-runs should
+          # refresh the assets rather than blow up.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists -- updating notes and assets"
+            gh release edit "$TAG" --notes-file notes.md
+            gh release upload "$TAG" .generated/* --clobber
+          else
+            # shellcheck disable=SC2086
+            gh release create "$TAG" $PRERELEASE \
+              --title "$TAG" \
+              --notes-file notes.md \
+              --target "$GITHUB_SHA" \
+              .generated/*
+          fi
+
+          echo "::notice::published https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

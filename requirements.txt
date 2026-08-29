@@ -1,0 +1,12 @@
+# Packages built as musl wheels for the pyalt runtime and shipped in
+# wheelhouse-<series>.tar.gz. This is the single source of truth: the build,
+# the smoke test and the VPS installer all read this file.
+#
+# Unpinned by design -- each release records the exact resolved versions in
+# MANIFEST.txt. Pin here if you need a release to be byte-reproducible.
+pydantic
+flask
+cron-converter
+pyyaml
+certbot
+aloelite[fuse]

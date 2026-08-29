@@ -1,26 +1,19 @@
-clean:
-	rm -rf pybuild
-	rm -rf wheels
-	rm -rf .generated
+# Local builds. Releases are published by .github/workflows/release.yml on tag push.
+.PHONY: all image build smoke clean
 
-init:
-	@mkdir -p pybuild
-	@chmod 777 pybuild
-	@mkdir -p wheels
-	@chmod 777 wheels
-	@mkdir -p .generated
-	@chmod 777 .generated
+all: build smoke
 
-build_container:
-	podman build -t musl_py .
+## build the alpine toolchain image only
+image:
+	./scripts/build.sh --image-only
 
+## runtime + wheelhouse into .generated/
 build:
+	./scripts/build.sh
 
-	podman run --rm \
-		-v $(pwd)/pybuild:/pyroot \
-		-v $(pwd)/wheels:/wheels \
-		musl_py sh -c '
-			apk add --no-cache fuse3-dev pkgconf linux-headers
-			/pyroot/usr/local/pyalt/bin/python3.12 -m pip install --upgrade pip wheel
-			# /pyroot/usr/local/pyalt/bin/python3.12 -m pip wheel --wheel-dir=/wheels -r /wheels/requirements.txt
-			/pyroot/usr/local/pyalt/bin/python3.12 -m pip wheel --wheel-dir=/wheels pydantic flask cron-converter pyyaml certbot "aloelite[fuse]"'
+## verify .generated/ by installing it onto a clean alpine container
+smoke:
+	./scripts/smoke-test.sh
+
+clean:
+	rm -rf pybuild wheels .generated
