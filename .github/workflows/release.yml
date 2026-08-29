@@ -95,6 +95,9 @@ jobs:
           retention-days: 14
           if-no-files-found: error
           overwrite: true   # so re-running a failed job does not collide
+          # .generated is a dotted directory, and upload-artifact treats
+          # anything under one as hidden and silently filters it out.
+          include-hidden-files: true
 
       - name: Publish release
         if: steps.meta.outputs.tag != ''
