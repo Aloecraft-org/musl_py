@@ -1,0 +1,12 @@
+pybuild/
+wheels/
+
+.nogit/
+.dump/
+.generated/
+
+.xtrpatch/
+.xtr/
+x.patch
+x.md
+.xtrshow_manifest
