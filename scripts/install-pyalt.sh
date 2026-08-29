@@ -86,7 +86,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 echo "==> installing runtime libraries"
-apk add --no-cache sqlite-libs libffi readline ncurses-libs xz-libs bzip2 zlib fuse3
+apk add --no-cache sqlite-libs libffi readline ncurses-libs xz-libs libbz2 zlib fuse3
 
 echo "==> unpacking runtime into $PREFIX/pyalt"
 tar xzf "$TMP/$PYALT" -C "$PREFIX"

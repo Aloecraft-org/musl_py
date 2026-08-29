@@ -42,6 +42,10 @@ base=https://github.com/Aloecraft-org/musl_py/releases/latest/download
 wget -q "$base/pyalt-3.12.tar.gz" "$base/wheelhouse-3.12.tar.gz" "$base/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
 
+# libbz2, not bzip2 -- the bzip2 package is only the CLI and does not pull in
+# libbz2.so.1, so `import bz2` fails without this.
+apk add --no-cache sqlite-libs libffi readline ncurses-libs xz-libs libbz2 zlib fuse3
+
 tar xzf pyalt-3.12.tar.gz -C /usr/local
 mkdir -p /opt/wheelhouse && tar xzf wheelhouse-3.12.tar.gz -C /opt/wheelhouse
 /usr/local/pyalt/bin/python3.12 -m pip install --no-index \
